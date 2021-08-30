@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-VENVNAME=tweets_marie
+VENVNAME=fb_privacy
 
 python3 -m venv $VENVNAME
 source $VENVNAME/bin/activate
