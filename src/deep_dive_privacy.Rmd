@@ -1,0 +1,161 @@
+---
+title: "NGI deep dive privacy"
+author: "Marie Mortensen"
+date: "8/30/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+#sourcing functions
+source("utils/functions.R")
+
+#packages for modelling and preprocessing
+pacman::p_load(caret, tidyverse, pROC, nnet)
+
+#reading input file 
+danish_p_gender <- read.csv("FB/CSVs/danish_p_gender_clean&ready.csv")
+
+#selecting and transforming important variables 
+all_pred <- danish_p_gender %>% select(
+  dominance,
+  dominant_topic,
+  new_days,
+  post_total,
+  privacy
+  )
+#setting seed to get similar results everytimessss
+set.seed(2020)
+
+#generating 1000 samples with balanced group levels using replicate and "my_sample" function
+all_samples <- replicate(1000, my_sample(all_pred, "dominance", "1", "2", "3"), simplify = F)
+
+```
+
+
+```{r}
+for (i in 1:length(all_samples)) {
+set.seed(2020)
+print(i)  
+
+d <- all_samples[[i]]
+d$dominance <- as.factor(d$dominance)
+d$privacy <- as.factor(d$privacy)
+
+in_train <- caret::createDataPartition(d$privacy, p = .70, list = FALSE)
+train <- d[ in_train, ] # Training dataset for all model development
+test <- d[ -in_train, ] # Final sample for model validation
+
+   best_m <- caret::train(
+     privacy ~ dominance,
+     data = train[, c("dominance", "privacy")],
+     method = "multinom",
+     trControl = caret::trainControl(method = "cv", number = 10),
+     trace = FALSE,
+     MaxNWts= 2000
+   )
+pred <- predict(best_m,  test[, c("dominance")])
+preds <- data_frame(predictions = as.factor(pred), actual = as.factor(test[,1]))
+#making a confusion matrix that sets up predictions against actual
+confused <- caret::confusionMatrix(preds$predictions, preds$actual)
+#storing values
+accuracy_score <- as.numeric(confused$overall[1])
+preds$actual<- as.numeric(preds$actual)
+preds$predictions <- as.numeric(preds$predictions)
+multi_roc <- pROC::multiclass.roc(preds$actual, preds$predictions)
+#saving reslts
+info <- data.frame(
+  accuracy = accuracy_score,
+  roc_auc = multi_roc$auc)
+ if(i == 1){
+    machine_info <- info
+}else{
+    machine_info <- rbind(machine_info, info)
+  }
+}
+
+machine_info %>% 
+  summarize(mean_acc = mean(accuracy), 
+            sd_acc = sd(accuracy), 
+            mean_auc = mean(roc_auc), 
+            sd_auc = sd(roc_auc))
+hist(machine_info$accuracy)
+
+random_classifier <- random_class(all_samples, "privacy")
+random_classifier %>% 
+  summarize(mean_acc = mean(accuracy), 
+            sd_acc = sd(accuracy), 
+            mean_auc = mean(roc_auc), 
+            sd_auc = sd(roc_auc))
+hist(random_classifier$accuracy)
+
+```
+
+
+```{r}
+set.seed(2020)
+
+for (i in 1:length(all_samples)) {
+  print(i)
+  d <- all_samples[[i]]  
+  d$dominant_topic <- as.factor(d$dominant_topic)
+  # Split dataframe into training & testing sets
+  in_train <- caret::createDataPartition(d$dominance, p = .70, list = FALSE)
+  train <- d[in_train,] # Training dataset for all model development
+  test <- d[- in_train,]
+  #dominance ~ topic + days
+  best_model <- caret::train(
+    privacy ~ dominant_topic,
+    data = train[, c("privacy", "dominant_topic")],
+    method = "multinom",
+    # trControl = caret::trainControl(method = "cv", number = 10),
+    trace = FALSE,
+    MaxNWts= 2000
+  )
+  sum <- summary(best_model)
+  for (k in 1:length(sum$coefnames)){ 
+    coef <- sum$coefnames[k]
+    if (coef == "(Intercept)"){
+      topic_k <- mutate(d, dominant_topic = factor(1, levels=1:50))
+    }
+    else{
+      coef <- str_extract_all(coef,"\\(?[0-9,.]+\\)?") #extracting the number 
+      topic_k <- mutate(d, dominant_topic = factor(coef, levels=1:50)) # We take the coefficient in question, say 2, and change the dominant topic column to only contain this value. 
+      }
+    p_tk <- predict(best_model, type = "prob", newdata = topic_k) # Predictions
+    marg <- data.frame(
+    # Mean probabilities 
+    CLOSED = apply(p_tk, 2, mean)[1],
+    OPEN = apply(p_tk, 2, mean)[2],
+    SECRET = apply(p_tk, 2, mean)[3],
+    coef = sum$coefnames[k],
+    sample = i)
+
+  if(k == 1){
+  avg_marg_disc <- marg
+  }else{
+  avg_marg_disc <- rbind(avg_marg_disc, marg)
+   }
+   }
+     if(i == 1){
+   average_marg_disc <- avg_marg_disc
+   }else{
+     average_marg_disc <- rbind(average_marg_disc, avg_marg_disc)
+    }
+}
+
+# Getting topic probs
+average_marg_disc_long  <- average_marg_disc %>% 
+  gather(group, marg_eff, CLOSED:SECRET)
+
+average_marg_disc_long %>% 
+  group_by(group, coef) %>% 
+  summarise(
+    mean_prob = mean(marg_eff),
+    sd_prob = sd(marg_eff)
+  )
+```
+
