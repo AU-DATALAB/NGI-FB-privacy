@@ -1,0 +1,11 @@
+pandas
+spacy
+nltk
+gensim
+matplotlib
+argparse 
+tweet-preprocessor
+networkx
+numpy
+transformers
+wordcloud
