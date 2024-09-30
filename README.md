@@ -1,6 +1,8 @@
 # NGI-FB-privacy
 This repository contains code related to a deep dive in the Next Generation Internet report D1.8.
 
+<a href= https://datalab.au.dk/fileadmin/ingen_mappe_valgt/D1.8__Final_social_media_analysis_report___visualisations.pdf>See report</a>
+
 ## Prerequisites
 Install and activate a virtual environment containing necessary modules, excecute the following code in your terminal:
 
